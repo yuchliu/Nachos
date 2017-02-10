@@ -36,16 +36,13 @@ public class Communicator {
 		commLock.acquire();
 		++this.speakCount;
 		while(inTransaction || listenCount == 0) {
-			//System.out.println("speaker " + KThread.currentThread() + " sleep, " + speakCount + " speakers " + listenCount + " listeners");
 			speakQueue.sleep();
-			//System.out.println("speaker " + KThread.currentThread() + " wake, " + speakCount + " speakers " + listenCount + " listeners");
 		}
 		inTransaction = true;
 		msg = word;
 		listenQueue.wake();
 		--speakCount;
 		commLock.release();
-		return;
 	}
 
 	/**
@@ -62,9 +59,7 @@ public class Communicator {
 		while(!inTransaction) {
 			if(speakCount>0)
 				speakQueue.wake();
-			//System.out.println("listener " + KThread.currentThread() + " sleep, " + speakerQueue.getThreadCount() + " speakers " + listenerQueue.getThreadCount() + " listeners");
 			listenQueue.sleep();
-			//System.out.println("listener " + KThread.currentThread() + " wake, " + speakerQueue.getThreadCount() + " speakers " + listenerQueue.getThreadCount() + " listeners");
 		}
 		ret = msg;
 		inTransaction = false;
