@@ -67,7 +67,6 @@ public class Communicator {
 			speakQueue.wake();
 
 		commLock.release();
-		//System.out.println("listener " + KThread.currentThread() + " out, " + speakerQueue.getThreadCount() + " speakers " + listenerQueue.getThreadCount() + " listeners");
 		--listenCount;
 		return ret;
 	}

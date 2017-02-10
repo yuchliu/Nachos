@@ -399,7 +399,7 @@ public class KThread {
 		}
 
 		public void run() {
-			for (int i = 0; i < 100000; i++) {
+			for (int i = 0; i < 5; i++) {
 				System.out.println("*** thread " + which + " looped " + i
 						+ " times");
 				currentThread.yield();
@@ -424,7 +424,6 @@ public class KThread {
 		new KThread(new PingTest(2)).setName("forked thread").fork();
 		new KThread(new PingTest(1)).setName("forked thread").fork();
 		//T0.join();
-		new Alarm().waitUntil(1000000000);
 		System.out.println("Test Finish!");
 	}
 
