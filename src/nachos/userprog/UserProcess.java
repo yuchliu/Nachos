@@ -5,6 +5,7 @@ import nachos.threads.*;
 import nachos.userprog.*;
 
 import java.io.EOFException;
+import java.util.ArrayList;
 
 /**
  * Encapsulates the state of a user process that is not contained in its user
@@ -23,6 +24,7 @@ public class UserProcess {
 	 * Allocate a new process.
 	 */
 	public UserProcess() {
+		PID = nextPID++;
 		int numPhysPages = Machine.processor().getNumPhysPages();
 		pageTable = new TranslationEntry[numPhysPages];
 		for (int i = 0; i < numPhysPages; i++)
@@ -337,9 +339,27 @@ public class UserProcess {
 	 */
 	private int handleHalt() {
 
+		if (PID!=0)
+			return -1;
+
 		Machine.halt();
 
 		Lib.assertNotReached("Machine.halt() did not halt machine!");
+		return 0;
+	}
+
+	private void handleExec(int status){
+
+	}
+
+	private int handleCreate(int nameAddr){
+		String fileName = this.readVirtualMemoryString(nameAddr,255);
+		if (fileName==null)
+			return -1;
+
+		OpenFile file = ThreadedKernel.fileSystem.open(fileName,true);
+		if (file==null)
+			return -1;
 		return 0;
 	}
 
@@ -348,6 +368,8 @@ public class UserProcess {
 			syscallRead = 6, syscallWrite = 7, syscallClose = 8,
 			syscallUnlink = 9;
 
+	public static int nextPID = 0;
+	protected int PID;
 	/**
 	 * Handle a syscall exception. Called by <tt>handleException()</tt>. The
 	 * <i>syscall</i> argument identifies which syscall the user executed:
@@ -413,6 +435,8 @@ public class UserProcess {
 		switch (syscall) {
 		case syscallHalt:
 			return handleHalt();
+		case syscallCreate:
+			case syscallOpen:
 
 		default:
 			Lib.debug(dbgProcess, "Unknown syscall " + syscall);
@@ -468,4 +492,6 @@ public class UserProcess {
 	private static final int pageSize = Processor.pageSize;
 
 	private static final char dbgProcess = 'a';
+
+	private static ArrayList<Integer> available_descriptor;
 }

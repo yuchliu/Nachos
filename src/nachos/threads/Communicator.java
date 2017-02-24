@@ -2,7 +2,6 @@ package nachos.threads;
 
 import nachos.machine.*;
 
-
 /**
  * A <i>communicator</i> allows threads to synchronously exchange 32-bit
  * messages. Multiple threads can be waiting to <i>speak</i>, and multiple
@@ -18,18 +17,19 @@ public class Communicator {
 		this.listenCount = 0;
 		this.speakCount = 0;
 		this.commLock = new Lock();
-		this.speakQueue = new Condition2(this.commLock);
-		this.listenQueue = new Condition2(this.commLock);
+		this.speakQueue = new Condition(this.commLock);
+		this.listenQueue = new Condition(this.commLock);
+		this.finishQueue = new Condition(this.commLock);
 	}
 
 	/**
 	 * Wait for a thread to listen through this communicator, and then transfer
 	 * <i>word</i> to the listener.
-	 * 
+	 *
 	 * <p>
 	 * Does not return until this thread is paired up with a listening thread.
 	 * Exactly one listener should receive <i>word</i>.
-	 * 
+	 *
 	 * @param word the integer to transfer.
 	 */
 	public void speak(int word) {
@@ -42,19 +42,22 @@ public class Communicator {
 		msg = word;
 		listenQueue.wake();
 		--speakCount;
+		finishQueue.sleep();
 		commLock.release();
+
+		return;
 	}
 
 	/**
 	 * Wait for a thread to speak through this communicator, and then return the
 	 * <i>word</i> that thread passed to <tt>speak()</tt>.
-	 * 
+	 *
 	 * @return the integer transferred.
 	 */
 	public int listen() {
-		++this.listenCount;
 		int ret;
 		commLock.acquire();
+		++this.listenCount;
 
 		while(!inTransaction) {
 			if(speakCount>0)
@@ -63,20 +66,20 @@ public class Communicator {
 		}
 		ret = msg;
 		inTransaction = false;
+		--listenCount;
+		finishQueue.wake();
 		if(listenCount>0 && speakCount>0)
 			speakQueue.wake();
-
 		commLock.release();
-		--listenCount;
 		return ret;
 	}
 
 	private Lock commLock = null;
-	private Condition2 speakQueue = null;
-	private Condition2 listenQueue = null;
+	private Condition speakQueue = null;
+	private Condition listenQueue = null;
+	private Condition finishQueue = null;
 	private int speakCount = 0;
 	private int listenCount = 0;
-
 	private int msg = 0;
 	private  boolean inTransaction = false;
 }

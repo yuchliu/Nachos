@@ -52,3 +52,9 @@ test:
 	cd ../test ; gmake
 
 ag:	$(patsubst ../ag/%.java,nachos/ag/%.class,$(wildcard ../ag/*.java))
+
+JC = javac -d nachos\bin -cp nachos\bin
+.PHONY: all
+
+all:
+	$(JC) nachos\ag\ThreadGrader1.java nachos\ag\ThreadGrader2.java nachos\ag\ThreadGrader3.java nachos\ag\ThreadGrader4.java nachos\ag\ThreadGrader5.java nachos\ag\JoinGrader.java
