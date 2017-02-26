@@ -2,12 +2,10 @@ package nachos.userprog;
 
 import nachos.machine.*;
 import nachos.threads.*;
-import nachos.userprog.*;
 
 import java.io.EOFException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 
 /**
  * Encapsulates the state of a user process that is not contained in its user
@@ -427,6 +425,17 @@ public class UserProcess {
 		return fileDescriptor;
 	}
 
+	private int handleClose(int descriptor){
+		OpenFile file = openFileMap[descriptor];
+		if (file==null)
+			return -1;
+
+		file.close();
+		openFileMap[descriptor] = null;
+		availableDescriptors.add(descriptor);
+		return 0;
+	}
+
 	private static final int syscallHalt = 0, syscallExit = 1, syscallExec = 2,
 			syscallJoin = 3, syscallCreate = 4, syscallOpen = 5,
 			syscallRead = 6, syscallWrite = 7, syscallClose = 8,
@@ -501,6 +510,8 @@ public class UserProcess {
 				return handleCreat(a0);
 			case syscallOpen:
 				return handleOpen(a0);
+			case syscallClose:
+				return handleClose(a0);
 			default:
 				Lib.debug(dbgProcess, "Unknown syscall " + syscall);
 				Lib.assertNotReached("Unknown system call!");
