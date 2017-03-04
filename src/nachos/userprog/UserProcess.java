@@ -444,9 +444,9 @@ public class UserProcess {
 	private int handleHalt() {
 
 		if (pid == ROOT)
-	        Machine.halt();
-        else
-		    Lib.assertNotReached("Machine.halt() did not halt machine!");
+			Machine.halt();
+		else
+			Lib.assertNotReached("Machine.halt() did not halt machine!");
 		return 0;
 	}
 
@@ -482,6 +482,66 @@ public class UserProcess {
 		else {
 			KThread.currentThread().finish();
 		}
+	}
+
+	private int handleExec(int file, int argc, int argv){
+		if(argv<0 || argc<0 || file<0)
+			return -1;
+		String fName=readVirtualMemoryString(file,255);
+
+		if(fName==null)
+			return -1;
+		String args[]=new String[argc];
+
+		int arg;
+
+		byte temp[]=new byte[4];
+
+		for(int i=0;i<argc;i++){
+			if(readVirtualMemory(argv+i*4,temp)!=4)
+				return -1;
+			arg=Lib.bytesToInt(temp,0);
+
+			if((args[i]=readVirtualMemoryString(arg,255))==null)
+				return -1;
+		}
+
+		UserProcess child=UserProcess.newUserProcess();
+		child.parentid=this.pid;
+
+		if(child.execute(fName,args)){
+			children.put(child.pid,child);
+			return child.pid;
+		}
+
+		return -1;
+	}
+
+	private int handleJoin(int pid, int status){
+		if (status<0 || pid<0)
+			return -1;
+
+		UserProcess child;
+
+		if(children.containsKey(pid))
+			child=children.get(pid);
+		else
+			return -1;
+
+		child.thread.join();
+		children.remove(pid);
+
+		if(child.exitStatus == 0){
+			byte stats[]=new byte[4];
+			stats=Lib.bytesFromInt(child.exitStatus);
+			int byteTransf=writeVirtualMemory(status,stats);
+
+			if(byteTransf==4)
+				return 1;
+			else
+				return 0;
+		}
+		return 0;
 	}
 
 	/**
@@ -693,9 +753,9 @@ public class UserProcess {
 				handleExit(a0);
 				return 0;
 			case syscallExec:
-				break;
+				return handleExec(a0,a1,a2);
 			case syscallJoin:
-				break;
+				return handleJoin(a0,a1);
 			case syscallCreate:
 				return handleCreat(a0);
 			case syscallOpen:
@@ -784,4 +844,6 @@ public class UserProcess {
 	-1 exit with Exception
 	 */
 	private int exitStatus;
+
+	private UThread thread;
 }
