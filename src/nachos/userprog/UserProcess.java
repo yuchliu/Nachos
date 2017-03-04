@@ -41,6 +41,7 @@ public class UserProcess {
 
 		pid = processCount++;
 		children = new HashMap<Integer,UserProcess>();
+		exitStatus = 1;
 	}
 
 	/**
@@ -448,6 +449,40 @@ public class UserProcess {
 		return 0;
 	}
 
+	private void handleExit(int status){
+		Lib.debug(dbgProcess, "handleExit()");
+
+		//close files
+		for (int i=0; i!=16; ++i){
+			if (openFileMap[i]!=null){
+				handleClose(i);
+			}
+		}
+
+		//change exitStatus
+		exitStatus = status;
+
+		//change all child processes' parent to ROOT
+		if (children!=null && !children.isEmpty()){
+			for (int cid: children.keySet()){
+				children.get(cid).parentid = ROOT;
+			}
+		}
+		children = null;
+
+		//release memory
+		unloadSections();
+
+		//kill the current KThred, if it's root, terminate the Kernel
+		if (pid==ROOT){
+			Lib.debug(dbgProcess, "ROOT terminited!");
+			Kernel.kernel.terminate();
+		}
+		else {
+			KThread.currentThread().finish();
+		}
+	}
+
 	/**
 	 *
 	 * @param vAddr in memory system, the address is use
@@ -654,7 +689,8 @@ public class UserProcess {
 			case syscallHalt:
 				return handleHalt();
 			case syscallExit:
-				break;
+				handleExit(a0);
+				return 0;
 			case syscallExec:
 				break;
 			case syscallJoin:
@@ -740,5 +776,11 @@ public class UserProcess {
 	//parent process's id
 	private int parentid = ROOT;
 	//childProcess
-	private HashMap<Integer,UserProcess> children;
+	private HashMap<Integer,UserProcess> children = null;
+	/*
+	exitStatus:
+	0 exit normally:
+	-1 exit with Exception
+	 */
+	private int exitStatus;
 }
