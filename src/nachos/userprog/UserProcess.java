@@ -443,9 +443,10 @@ public class UserProcess {
 	 */
 	private int handleHalt() {
 
-		Machine.halt();
-
-		Lib.assertNotReached("Machine.halt() did not halt machine!");
+		if (pid == ROOT)
+	        Machine.halt();
+        else
+		    Lib.assertNotReached("Machine.halt() did not halt machine!");
 		return 0;
 	}
 
