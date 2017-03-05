@@ -541,17 +541,14 @@ public class UserProcess {
 		child.thread.join();
 		children.remove(pid);
 
-		if(child.exitStatus == 0){
-			byte stats[]=new byte[4];
-			stats=Lib.bytesFromInt(child.exitStatus);
-			int byteTransf=writeVirtualMemory(status,stats);
+        byte stats[]=new byte[4];
+        stats=Lib.bytesFromInt(child.exitStatus);
+        int byteTransf=writeVirtualMemory(status,stats);
 
-			if(byteTransf==4)
-				return 1;
-			else
-				return 0;
-		}
-		return 0;
+        if(byteTransf==4)
+            return 1;
+        else
+            return 0;
 	}
 
 	/**
