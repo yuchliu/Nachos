@@ -38,12 +38,19 @@ public class UserProcess {
 		openFileMap[1] = UserKernel.console.openForWriting();
 		for (int i = 2; i < openFileMap.length; i++)
 			openFileMap[i] = null;
-
 		pid = processCount++;
 		children = new HashMap<Integer,UserProcess>();
 		exitStatus = 1;
 	}
+	private static class FileReference {
+		int numOfRef;
+		boolean deleted;
 
+		public FileReference() {
+			this.numOfRef = 0;
+			this.deleted = false;
+		}
+	}
 	/**
 	 * Allocate and return a new process of the correct class. The class name is
 	 * specified by the <tt>nachos.conf</tt> key
@@ -66,8 +73,8 @@ public class UserProcess {
 	public boolean execute(String name, String[] args) {
 		if (!load(name, args))
 			return false;
-
-		new UThread(this).setName(name).fork();
+		thread = new UThread(this);
+		thread.setName(name).fork();
 
 		return true;
 	}
@@ -431,11 +438,157 @@ public class UserProcess {
 	 */
 
 	private boolean checkFileDescriptor(int fileDescriptor) {
-		if (fileDescriptor >= openFileMap.length || fileDescriptor < 2)
+		// accept 0 and 1, that is for stdin and stdout
+		if (fileDescriptor >= openFileMap.length || fileDescriptor < 0)
 			return false;
 		if (openFileMap[fileDescriptor] == null)
 			return false;
 		return true;
+	}
+
+	/**
+	 * increase reference count for a file(by filename)
+	 * @param filename
+	 * @return
+	 */
+
+	private static boolean refFile(String filename) {
+		fileRefLock.acquire();
+		FileReference ref = fileRefMap.get(filename);
+		if (ref == null) {
+			ref = new FileReference();
+			fileRefMap.put(filename, ref);
+		}
+
+		if (!ref.deleted) {
+			ref.numOfRef++;
+			// TODO: remove me
+//			System.out.println("This file has " + ref.numOfRef + " references");
+			fileRefLock.release();
+			return true;
+		}
+		else {	// cannot reference
+			fileRefLock.release();
+			return false;
+		}
+	}
+
+	/**
+	 * Unreference file, if this is the last reference, check if we need delete it or not
+	 * @param filename
+	 * @return false: 1. cannot find the reference in the map. OR 2. delete from file system failed
+	 * 			true: 1. only unref, OR 2. delete from file system failed succeed
+	 */
+
+	private static boolean unRefFile(String filename) {
+		fileRefLock.acquire();
+		boolean ret = true;
+		FileReference ref = fileRefMap.get(filename);
+		// TODO: remove me
+/*		if (ref == null)
+			System.out.println("Nachos: error in unRefFile, ref == null");
+		else if (ref.numOfRef <= 0)
+			System.out.println("Nachos: error in unRefFile, ref.numOfRef <= 0");*/
+
+
+		if (ref == null || ref.numOfRef <= 0) {                    // it is impossible
+
+			fileRefLock.release();
+			return false;
+		}
+		ref.numOfRef--;
+		// TODO: remove me
+		//System.out.println("Nachos: Still have " + ref.numOfRef + " references" + ", file deleted status is " + ref.deleted);
+		if (ref.numOfRef <= 0) {
+			// delete the file if it has been marked as deleted,if not just un-reference the last reference
+			if (ref.deleted == true) {
+				ret = UserKernel.fileSystem.remove(filename);
+				// TODO: think about leaving the filename in the map if remove() failed
+				fileRefMap.remove(filename);
+				// TODO: remove me
+/*				if (ret)
+					System.out.println("Nachos: delete file because last ref removed");
+				else
+					System.out.println("Nachos: delete failed!");*/
+			}
+		}
+
+		fileRefLock.release();
+		// including both case (only unref/need delete)
+		return ret;
+	}
+
+	/**
+	 * unlink(delete) the file if no processes have the file open, otherwise just mark deleted flag
+	 * @param filename
+	 * @return false: 1. cannot find file in the map 2. still open by some file, cannot delete, 3. delete successfully
+	 *          true:
+	 */
+
+	private static boolean unLinkFile(String filename) {
+		fileRefLock.acquire();
+		boolean ret = true;
+		FileReference ref = fileRefMap.get(filename);
+		if (ref == null) {                    // you can't unlink a file which is not even opened
+			fileRefLock.release();
+			return false;
+		}
+
+		// because we marked the deleted as true here, even we can't unlink right now,
+		// unRefFile() will be called when handleClose() so this file will be delete at that time
+		ref.deleted = true;
+		// only unlink if no processes have the file open, otherwise just mark deleted flag
+		if (ref.numOfRef <= 0) {
+			ret = UserKernel.fileSystem.remove(filename);
+			// TODO: think about leaving the filename in the map if remove() failed
+			fileRefMap.remove(filename);
+			// TODO: remove me
+/*			if (ret)
+				System.out.println("Nachos: delete done!");
+			else
+				System.out.println("Nachos: delete failed!");*/
+		}
+		// TODO: remove me
+/*		if (ref.numOfRef > 0 )
+			System.out.println("Nachos: still be opened");*/
+		fileRefLock.release();
+		return ret;
+	}
+
+	private int creatOrOpenFile(int vAddr, boolean createFlag) {
+		String filename;
+		OpenFile file;
+
+		if (!checkVirtualAddress(vAddr))
+			return -1;
+
+		// in the requirement, the passed in vAddr from user program is defined up to 255
+		if ( (filename = this.readVirtualMemoryString(vAddr, 255)) == null )
+			return -1;
+
+		// a process should maintain up to 16 open filed at same time,
+		// 0 for stdin and 1 for stdout. Thus, we have 14 available descriptor for opening/creating file
+		if (availableDescriptors.size() < 1) {
+			return -1;
+		}
+
+		// try to add reference to this file
+		if (!refFile(filename))
+			// fail to increase reference because that the deleted flag is set.
+			return -1;
+
+		// get physical address for the desired file, "true" means "create", "false" means "open"
+		if ( (file = ThreadedKernel.fileSystem.open(filename, createFlag)) == null ) {
+			// remove the previously reference since we failed to open the file
+			unRefFile(filename);
+			return -1;
+		}
+
+		// get next available file descriptor
+		Integer fileDescriptor = availableDescriptors.remove(0);
+		openFileMap[fileDescriptor] = file;
+
+		return fileDescriptor;
 	}
 
 	/**
@@ -454,7 +607,7 @@ public class UserProcess {
 		Lib.debug(dbgProcess, "handleExit()");
 
 		//close files
-		for (int i=0; i!=16; ++i){
+		for (int i=2; i!=16; ++i){
 			if (openFileMap[i]!=null){
 				handleClose(i);
 			}
@@ -485,21 +638,25 @@ public class UserProcess {
 	}
 
 	private int handleExec(int file, int argc, int argv){
-		if(argv<0 || argc<1 || file<0)
-			return -1;
-		String fName=readVirtualMemoryString(file,255);
-
-		if(fName==null)
-			return -1;
-
-		//check filename extension = .coff?
-		String suffix = fName.toLowerCase().substring(fName.length()-4);
-
-		if (!".coff".equals(suffix)){
+		if(argv<0 || argc<1 || file<0) {
+			System.out.println("Nachos: Exec: Input Arg Error");
 			return -1;
 		}
 
 
+		String fName=readVirtualMemoryString(file,255);
+
+		if(fName==null) {
+			System.out.println("Nachos: Exec: Filename is null");
+			return -1;
+		}
+
+		//check filename extension = .coff?
+		String suffix = fName.toLowerCase().substring(fName.length()-5);
+
+		if (!".coff".equals(suffix)){
+			return -1;
+		}
 
 		String args[]=new String[argc];
 
@@ -508,12 +665,19 @@ public class UserProcess {
 		byte temp[]=new byte[4];
 
 		for(int i=0;i<argc;i++){
-			if(readVirtualMemory(argv+i*4,temp)!=4)
+			if(readVirtualMemory(argv + i * 4,temp)!= 4) {
+				System.out.println("Nachos: Exec: readVirtualMemory failed");
 				return -1;
-			arg=Lib.bytesToInt(temp,0);
+			}
+			arg = Lib.bytesToInt(temp,0);
 
-			if((args[i]=readVirtualMemoryString(arg,255))==null)
+			if( (args[i] = readVirtualMemoryString(arg,255)) == null ) {
+				System.out.println("Nachos: Exec: readVirtualMemoryString failed");
 				return -1;
+			}
+
+			if (i < 8)
+				System.out.println("Nachos: args[i] is " + args[i]);
 		}
 
 		UserProcess child=UserProcess.newUserProcess();
@@ -523,7 +687,7 @@ public class UserProcess {
 			children.put(child.pid,child);
 			return child.pid;
 		}
-
+		System.out.println("Nachos: Exec: Chlid Exec failed");
 		return -1;
 	}
 
@@ -541,14 +705,14 @@ public class UserProcess {
 		child.thread.join();
 		children.remove(pid);
 
-        byte stats[]=new byte[4];
-        stats=Lib.bytesFromInt(child.exitStatus);
-        int byteTransf=writeVirtualMemory(status,stats);
+		byte stats[]=new byte[4];
+		stats=Lib.bytesFromInt(child.exitStatus);
+		int byteTransf=writeVirtualMemory(status,stats);
 
-        if(byteTransf==4)
-            return 1;
-        else
-            return 0;
+		if(byteTransf==4)
+			return 1;
+		else
+			return 0;
 	}
 
 	/**
@@ -558,59 +722,11 @@ public class UserProcess {
 	 */
 
 	private int handleCreat(int vAddr) {
-		String filename;
-		OpenFile file;
-
-		if (!checkVirtualAddress(vAddr))
-			return -1;
-
-		// in the requirement, the passed in vAddr from user program is defined up to 255
-		if ( (filename = this.readVirtualMemoryString(vAddr, 255)) == null )
-			return -1;
-
-		// a process should maintain up to 16 open filed at same time,
-		// 0 for stdin and 1 for stdout. Thus, we have 14 available descriptor for opening/creating file
-		if (availableDescriptors.size() < 1) {
-			return -1;
-		}
-
-		// get physical address for the desired file, "true" means "create"
-		if ( (file = ThreadedKernel.fileSystem.open(filename, true)) == null )
-			return -1;
-
-		// get next available file descriptor
-		Integer fileDescriptor = availableDescriptors.remove(0);
-		openFileMap[fileDescriptor] = file;
-
-		return fileDescriptor;
+		return creatOrOpenFile(vAddr, true);
 	}
 
 	private int handleOpen(int vAddr) {
-		String filename;
-		OpenFile file;
-
-		if (!checkVirtualAddress(vAddr))
-			return -1;
-
-		// in the requirement, the passed in vAddr from user program is defined up to 255
-		if ( (filename = this.readVirtualMemoryString(vAddr, 255)) == null )
-			return -1;
-
-		// a process should maintain up to 16 open filed at same time,
-		// 0 for stdin and 1 for stdout. Thus, we have 14 available descriptor for opening/creating file
-		if (availableDescriptors.size() < 1) {
-			return -1;
-		}
-
-		// get physical address for the desired file, "true" means "open"
-		if ( (file = ThreadedKernel.fileSystem.open(filename, false)) == null )
-			return -1;
-
-		// get next available file descriptor
-		Integer fileDescriptor = availableDescriptors.remove(0);
-		openFileMap[fileDescriptor] = file;
-
-		return fileDescriptor;
+		return creatOrOpenFile(vAddr, false);
 	}
 
 	/**
@@ -651,11 +767,11 @@ public class UserProcess {
 		if (!checkVirtualAddress(bufAddr))
 			return -1;
 
-		// the fileDescriptor should not be out of range (2-15)
+		// the fileDescriptor should not be out of range (0-15), 0 is stdin and 1 is stdout
 		if (!checkFileDescriptor(fileDescriptor))
 			return -1;
 
-		;		// may be read 0 byte, but that's fine, it's is not an error,
+		// may be read 0 byte, but that's fine, it's is not an error,
 		// Also, readVirtualMemory won't reutrn anything less than -1
 		byteHaveRead = readVirtualMemory(bufAddr, tempBuffer);
 
@@ -666,24 +782,39 @@ public class UserProcess {
 	}
 
 	private int handleClose(int descriptor){
+		if (!checkFileDescriptor(descriptor))
+			return -1;
+
 		OpenFile file = openFileMap[descriptor];
 		if (file == null)
 			return -1;
 
+
+		String filename = file.getName();
 		file.close();
 		openFileMap[descriptor] = null;
 		availableDescriptors.add(descriptor);
-		return 0;
+
+		// un-reference once we closed a file, it will check if this is the last one and should be deleted
+		if (!unRefFile(filename))
+			return -1;
+		else
+			return 0;
 	}
 
 	private int handleUnlink(int vAddr){
+		if (!checkVirtualAddress(vAddr))
+			return -1;
+
 		String filename = this.readVirtualMemoryString(vAddr,255);
 		if (filename == null)
 			return -1;
-		if (ThreadedKernel.fileSystem.remove(filename))
-			return 0;
-		else
+
+
+		if (!unLinkFile(filename))
 			return -1;
+		else
+			return 0;
 	}
 
 	private static final int syscallHalt = 0, syscallExit = 1, syscallExec = 2,
@@ -791,7 +922,6 @@ public class UserProcess {
 	 */
 	public void handleException(int cause) {
 		Processor processor = Machine.processor();
-
 		switch (cause) {
 			case Processor.exceptionSyscall:
 				int result = handleSyscall(processor.readRegister(Processor.regV0),
@@ -806,6 +936,7 @@ public class UserProcess {
 			default:
 				Lib.debug(dbgProcess, "Unexpected exception: "
 						+ Processor.exceptionNames[cause]);
+				handleExit(-1);
 				Lib.assertNotReached("Unexpected exception");
 		}
 	}
@@ -835,6 +966,10 @@ public class UserProcess {
 
 	/** Map file descriptor to open file. */
 	OpenFile openFileMap[] = new OpenFile[16];
+
+	/** Global file reference and lock */
+	private static HashMap<String, FileReference> fileRefMap = new HashMap<String, FileReference> ();
+	private static Lock fileRefLock = new Lock();
 
 	private static final int ROOT = 0;
 
