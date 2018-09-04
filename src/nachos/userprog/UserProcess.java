@@ -156,8 +156,6 @@ public class UserProcess {
 
 		// FIXME: not sure this is necessary or not
 		// for now, just assume that virtual addresses equal physical addresses
-		if (vaddr < 0 || vaddr >= memory.length)
-			return 0;
 
 		// To record the number of bytes successfully copied (or zero if no data could be copied).
 		int totalTransf = 0;
@@ -168,16 +166,17 @@ public class UserProcess {
 			if(virtualP >= pageTable.length || virtualP < 0)
 				break;
 			TranslationEntry pte=pageTable[virtualP];
-			if(!pte.valid) break;
+			if(!pte.valid)
+				break;
 			pte.used=true;
-			int physicalP=pte.ppn;
-			int physicalAddr=physicalP*1024+addr;
+			int physicalP = pte.ppn;
+			int physicalAddr = physicalP*1024+addr;
 			int amount = Math.min(data.length-offset, Math.min(length, 1024-addr));
 			System.arraycopy(memory, physicalAddr, data, offset, amount);
-			vaddr+=amount;
-			offset+=amount;
-			length-=amount;
-			totalTransf+=amount;
+			vaddr += amount;
+			offset += amount;
+			length -= amount;
+			totalTransf += amount;
 		}
 
 		return totalTransf;
@@ -223,7 +222,7 @@ public class UserProcess {
 		int totalTransf = 0;
 
 		while(length>0&&offset<data.length){
-			int addr=vaddr%1024;
+			int addr = vaddr%1024;
 			int virtualP=vaddr/1024;
 			if(virtualP>=pageTable.length||virtualP<0)
 				break;
@@ -638,7 +637,7 @@ public class UserProcess {
 	}
 
 	private int handleExec(int file, int argc, int argv){
-		if(argv<0 || argc<1 || file<0) {
+		if(argv<0 || argc<0 || file<0) {
 			System.out.println("Nachos: Exec: Input Arg Error");
 			return -1;
 		}
